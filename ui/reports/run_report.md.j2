@@ -1,0 +1,1 @@
+# Reasoner Run Report\n\nRun ID: {{ run.id }}\nFormula: {{ run.formula_code }} (v{{ lineage.formula_version }})\nChecksum: {{ lineage.checksum }}\n\nInputs (normalized):\n{% for k,v in normalized.items() %}- {{ k }} = {{ v }}\n{% endfor %}\n\nResult: {{ result_value }} {{ result_unit }}\nDecision: {{ decision }} ({{ confidence }})\n
