@@ -1,0 +1,103 @@
+[
+  {
+    "name": "Concrete Strength Test Data",
+    "formula_id": "concrete_compressive_strength_maturity",
+    "description": "Empirical test data for concrete strength validation",
+    "test_cases": [
+      {
+        "inputs": {"S_ultimate": 50, "k": 0.005, "maturity": 1000},
+        "expected_output": 24.6,
+        "tolerance": 0.05,
+        "context": {"climate": "temperate", "cement_type": "Type_I"}
+      },
+      {
+        "inputs": {"S_ultimate": 50, "k": 0.005, "maturity": 2000},
+        "expected_output": 39.3,
+        "tolerance": 0.05,
+        "context": {"climate": "temperate", "cement_type": "Type_I"}
+      },
+      {
+        "inputs": {"S_ultimate": 50, "k": 0.005, "maturity": 3000},
+        "expected_output": 46.6,
+        "tolerance": 0.05,
+        "context": {"climate": "temperate", "cement_type": "Type_I"}
+      }
+    ]
+  },
+  {
+    "name": "Beam Deflection Test Data",
+    "formula_id": "beam_deflection_simply_supported",
+    "description": "Structural engineering test data for beam deflection",
+    "test_cases": [
+      {
+        "inputs": {"w": 10, "L": 5, "E": 200, "I": 0.0001},
+        "expected_output": 0.00406,
+        "tolerance": 0.05,
+        "context": {"material": "steel", "code": "AISC"}
+      },
+      {
+        "inputs": {"w": 5, "L": 4, "E": 200, "I": 0.00015},
+        "expected_output": 0.00074,
+        "tolerance": 0.05,
+        "context": {"material": "steel", "code": "AISC"}
+      }
+    ]
+  },
+  {
+    "name": "Heat Transfer Test Data",
+    "formula_id": "heat_transfer_conduction",
+    "description": "Thermal analysis test data",
+    "test_cases": [
+      {
+        "inputs": {"k": 0.5, "A": 1.0, "T_hot": 100, "T_cold": 20, "thickness": 0.1},
+        "expected_output": 400,
+        "tolerance": 0.05,
+        "context": {"material": "insulation"}
+      },
+      {
+        "inputs": {"k": 50, "A": 2.0, "T_hot": 200, "T_cold": 50, "thickness": 0.05},
+        "expected_output": 300000,
+        "tolerance": 0.05,
+        "context": {"material": "aluminum"}
+      }
+    ]
+  },
+  {
+    "name": "Column Buckling Test Data",
+    "formula_id": "column_buckling_euler",
+    "description": "Euler buckling load test cases",
+    "test_cases": [
+      {
+        "inputs": {"E": 200, "I": 0.0001, "L": 3, "K": 1.0},
+        "expected_output": 21923.5,
+        "tolerance": 0.05,
+        "context": {"boundary_condition": "pinned-pinned"}
+      },
+      {
+        "inputs": {"E": 200, "I": 0.00015, "L": 4, "K": 0.7},
+        "expected_output": 60055.4,
+        "tolerance": 0.05,
+        "context": {"boundary_condition": "fixed-fixed"}
+      }
+    ]
+  },
+  {
+    "name": "Reynolds Number Test Data",
+    "formula_id": "fluid_reynolds_number",
+    "description": "Fluid dynamics test cases",
+    "test_cases": [
+      {
+        "inputs": {"rho": 1000, "v": 1.0, "D": 0.1, "mu": 0.001},
+        "expected_output": 100000,
+        "tolerance": 0.01,
+        "context": {"fluid": "water", "flow_regime": "turbulent"}
+      },
+      {
+        "inputs": {"rho": 1.2, "v": 10.0, "D": 0.05, "mu": 0.000018},
+        "expected_output": 33333.3,
+        "tolerance": 0.05,
+        "context": {"fluid": "air", "flow_regime": "turbulent"}
+      }
+    ]
+  }
+]

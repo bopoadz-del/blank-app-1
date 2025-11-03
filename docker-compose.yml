@@ -1,24 +1,58 @@
-version: "3.8"
+version: '3.9'
+
 services:
-  api:
-    build: .
-    ports: ["8000:8000"]
-    env_file: .env
-    depends_on: [db, redis]
-  db:
-    image: postgres:15-alpine
+  postgres:
+    image: timescale/timescaledb:latest-pg15
     environment:
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_DB: reasoner
-    ports: ["5432:5432"]
+      POSTGRES_USER: reasoner
+      POSTGRES_PASSWORD: reasoner123
+      POSTGRES_DB: reasoner_db
+    ports:
+      - "5432:5432"
     volumes:
-      - ./infra/db:/docker-entrypoint-initdb.d
-  redis:
-    image: redis:7-alpine
-    ports: ["6379:6379"]
-  worker:
-    build: .
-    command: python worker.py
-    env_file: .env
-    depends_on: [db, redis]
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reasoner"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://reasoner:reasoner123@postgres:5432/reasoner_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ./data:/app/data
+    restart: unless-stopped
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.9.2
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://reasoner:reasoner123@postgres:5432/mlflow_db
+    command: mlflow server --backend-store-uri postgresql://reasoner:reasoner123@postgres:5432/mlflow_db --default-artifact-root /mlflow --host 0.0.0.0
+    volumes:
+      - mlflow_data:/mlflow
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  mlflow_data:

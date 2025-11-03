@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reasoner AI Platform - Dashboard</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        const API_BASE = 'http://localhost:8000/api/v1';
+        
+        function Dashboard() {
+            const [view, setView] = useState('overview');
+            const [metrics, setMetrics] = useState(null);
+            const [formulas, setFormulas] = useState([]);
+            const [selectedFormula, setSelectedFormula] = useState(null);
+            const [executionResult, setExecutionResult] = useState(null);
+            
+            useEffect(() => {
+                fetchMetrics();
+                fetchFormulas();
+            }, []);
+            
+            const fetchMetrics = async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/analytics/system`);
+                    const data = await response.json();
+                    setMetrics(data);
+                } catch (error) {
+                    console.error('Failed to fetch metrics:', error);
+                }
+            };
+            
+            const fetchFormulas = async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/formulas?limit=50`);
+                    const data = await response.json();
+                    setFormulas(data);
+                } catch (error) {
+                    console.error('Failed to fetch formulas:', error);
+                }
+            };
+            
+            const executeFormula = async (formulaId, inputs) => {
+                try {
+                    const response = await fetch(`${API_BASE}/formulas/execute`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            formula_id: formulaId,
+                            input_values: inputs,
+                            context_data: {}
+                        })
+                    });
+                    const data = await response.json();
+                    setExecutionResult(data);
+                } catch (error) {
+                    console.error('Failed to execute formula:', error);
+                }
+            };
+            
+            return (
+                <div className="min-h-screen">
+                    {/* Header */}
+                    <header className="bg-white shadow">
+                        <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <h1 className="text-3xl font-bold text-gray-900">Reasoner AI Platform</h1>
+                                    <p className="mt-1 text-sm text-gray-500">Universal Mathematical Reasoning with Continuous Learning</p>
+                                </div>
+                                <div className="flex space-x-2">
+                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                                        System Online
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+                    
+                    {/* Navigation */}
+                    <nav className="bg-white shadow-sm border-b">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex space-x-8">
+                                {['overview', 'formulas', 'execute', 'learning'].map(tab => (
+                                    <button
+                                        key={tab}
+                                        onClick={() => setView(tab)}
+                                        className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                                            view === tab
+                                                ? 'border-blue-500 text-blue-600'
+                                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                        }`}
+                                    >
+                                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </nav>
+                    
+                    {/* Main Content */}
+                    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                        {view === 'overview' && <OverviewView metrics={metrics} />}
+                        {view === 'formulas' && <FormulasView formulas={formulas} setSelectedFormula={setSelectedFormula} />}
+                        {view === 'execute' && <ExecuteView formulas={formulas} executeFormula={executeFormula} executionResult={executionResult} />}
+                        {view === 'learning' && <LearningView />}
+                    </main>
+                </div>
+            );
+        }
+        
+        function OverviewView({ metrics }) {
+            if (!metrics) return <div className="text-center py-8">Loading metrics...</div>;
+            
+            return (
+                <div className="space-y-6">
+                    <h2 className="text-2xl font-bold text-gray-900">System Overview</h2>
+                    
+                    {/* Key Metrics */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <MetricCard title="Total Formulas" value={metrics.total_formulas} icon="📐" />
+                        <MetricCard title="Total Executions" value={metrics.total_executions} icon="⚡" />
+                        <MetricCard title="Avg Confidence" value={(metrics.average_confidence * 100).toFixed(1) + '%'} icon="🎯" />
+                        <MetricCard title="Learning Events (7d)" value={metrics.recent_learning_events} icon="🧠" />
+                    </div>
+                    
+                    {/* Status Breakdown */}
+                    <div className="bg-white rounded-lg shadow p-6">
+                        <h3 className="text-lg font-semibold mb-4">Formulas by Status</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            {Object.entries(metrics.formulas_by_status).map(([status, count]) => (
+                                <div key={status} className="border rounded-lg p-4">
+                                    <div className="text-sm text-gray-500">{status.replace('_', ' ').toUpperCase()}</div>
+                                    <div className="text-2xl font-bold mt-1">{count}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    
+                    {/* Domain Breakdown */}
+                    <div className="bg-white rounded-lg shadow p-6">
+                        <h3 className="text-lg font-semibold mb-4">Formulas by Domain</h3>
+                        <div className="space-y-3">
+                            {Object.entries(metrics.formulas_by_domain).map(([domain, count]) => (
+                                <div key={domain} className="flex items-center">
+                                    <div className="w-48 text-sm text-gray-700">{domain}</div>
+                                    <div className="flex-1 bg-gray-200 rounded-full h-6">
+                                        <div 
+                                            className="bg-blue-500 h-6 rounded-full flex items-center justify-end px-2"
+                                            style={{width: `${(count / metrics.total_formulas) * 100}%`}}
+                                        >
+                                            <span className="text-xs text-white font-medium">{count}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        
+        function FormulasView({ formulas, setSelectedFormula }) {
+            const [filter, setFilter] = useState('all');
+            
+            const filteredFormulas = formulas.filter(f => 
+                filter === 'all' || f.domain === filter
+            );
+            
+            return (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-bold text-gray-900">Formula Library</h2>
+                        <select 
+                            value={filter}
+                            onChange={(e) => setFilter(e.target.value)}
+                            className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        >
+                            <option value="all">All Domains</option>
+                            <option value="structural_engineering">Structural Engineering</option>
+                            <option value="concrete_technology">Concrete Technology</option>
+                            <option value="thermal_analysis">Thermal Analysis</option>
+                            <option value="financial_metrics">Financial Metrics</option>
+                            <option value="fluid_dynamics">Fluid Dynamics</option>
+                        </select>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {filteredFormulas.map(formula => (
+                            <FormulaCard key={formula.id} formula={formula} setSelectedFormula={setSelectedFormula} />
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+        
+        function FormulaCard({ formula, setSelectedFormula }) {
+            const confidenceColor = formula.confidence_score >= 0.9 ? 'green' : 
+                                   formula.confidence_score >= 0.7 ? 'yellow' : 'red';
+            
+            return (
+                <div className="bg-white rounded-lg shadow p-6 hover:shadow-lg transition-shadow cursor-pointer"
+                     onClick={() => setSelectedFormula(formula)}>
+                    <div className="flex justify-between items-start mb-3">
+                        <h3 className="text-lg font-semibold text-gray-900">{formula.name}</h3>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-${confidenceColor}-100 text-${confidenceColor}-800`}>
+                            {(formula.confidence_score * 100).toFixed(0)}%
+                        </span>
+                    </div>
+                    
+                    <p className="text-sm text-gray-600 mb-3">{formula.description}</p>
+                    
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span className="inline-flex items-center px-2 py-1 bg-gray-100 rounded">
+                            {formula.domain.replace('_', ' ')}
+                        </span>
+                        <span>
+                            {formula.total_executions} executions | 
+                            {formula.total_executions > 0 ? 
+                                ` ${((formula.successful_executions / formula.total_executions) * 100).toFixed(0)}% success` 
+                                : ' No data'}
+                        </span>
+                    </div>
+                    
+                    <div className="mt-3 pt-3 border-t">
+                        <code className="text-xs text-blue-600 break-all">{formula.formula_expression}</code>
+                    </div>
+                </div>
+            );
+        }
+        
+        function ExecuteView({ formulas, executeFormula, executionResult }) {
+            const [selectedFormulaId, setSelectedFormulaId] = useState('');
+            const [inputs, setInputs] = useState({});
+            
+            const selectedFormula = formulas.find(f => f.formula_id === selectedFormulaId);
+            
+            const handleExecute = () => {
+                if (!selectedFormulaId || !inputs) return;
+                executeFormula(selectedFormulaId, inputs);
+            };
+            
+            return (
+                <div className="space-y-6">
+                    <h2 className="text-2xl font-bold text-gray-900">Execute Formula</h2>
+                    
+                    <div className="bg-white rounded-lg shadow p-6">
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Select Formula</label>
+                                <select 
+                                    value={selectedFormulaId}
+                                    onChange={(e) => {
+                                        setSelectedFormulaId(e.target.value);
+                                        setInputs({});
+                                        setExecutionResult(null);
+                                    }}
+                                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                >
+                                    <option value="">-- Select a formula --</option>
+                                    {formulas.map(f => (
+                                        <option key={f.formula_id} value={f.formula_id}>{f.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            
+                            {selectedFormula && (
+                                <>
+                                    <div className="p-4 bg-blue-50 rounded border border-blue-200">
+                                        <p className="text-sm text-blue-900"><strong>Formula:</strong> {selectedFormula.formula_expression}</p>
+                                        <p className="text-sm text-blue-700 mt-1">{selectedFormula.description}</p>
+                                    </div>
+                                    
+                                    <div className="space-y-3">
+                                        <label className="block text-sm font-medium text-gray-700">Input Parameters</label>
+                                        {Object.entries(selectedFormula.input_parameters).map(([param, def]) => (
+                                            <div key={param}>
+                                                <label className="block text-sm text-gray-600 mb-1">
+                                                    {param} {def.unit && `(${def.unit})`}
+                                                    {def.description && <span className="text-gray-400"> - {def.description}</span>}
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    step="any"
+                                                    value={inputs[param] || ''}
+                                                    onChange={(e) => setInputs({...inputs, [param]: parseFloat(e.target.value)})}
+                                                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                                    placeholder={def.default || 'Enter value'}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                    
+                                    <button
+                                        onClick={handleExecute}
+                                        className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 font-medium"
+                                    >
+                                        Execute Formula
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                    
+                    {executionResult && (
+                        <div className={`rounded-lg shadow p-6 ${executionResult.status === 'completed' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                            <h3 className="text-lg font-semibold mb-3">Execution Result</h3>
+                            
+                            {executionResult.status === 'completed' ? (
+                                <div>
+                                    <div className="text-3xl font-bold text-green-900 mb-2">
+                                        Result: {JSON.stringify(executionResult.output_values)}
+                                    </div>
+                                    <div className="text-sm text-green-700">
+                                        Execution time: {(executionResult.execution_time * 1000).toFixed(2)}ms
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-red-900">
+                                    <strong>Error:</strong> {executionResult.error_message}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+        
+        function LearningView() {
+            const [insights, setInsights] = useState(null);
+            
+            useEffect(() => {
+                fetch(`${API_BASE}/learning/insights?days=7`)
+                    .then(res => res.json())
+                    .then(data => setInsights(data))
+                    .catch(console.error);
+            }, []);
+            
+            if (!insights) return <div className="text-center py-8">Loading learning insights...</div>;
+            
+            return (
+                <div className="space-y-6">
+                    <h2 className="text-2xl font-bold text-gray-900">Learning & Intelligence</h2>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <MetricCard title="Learning Events" value={insights.total_learning_events} icon="📊" />
+                        <MetricCard title="Confidence Increases" value={insights.confidence_increases} icon="📈" color="green" />
+                        <MetricCard title="Auto-Deploy Candidates" value={insights.auto_deploy_candidates} icon="🚀" color="blue" />
+                    </div>
+                    
+                    <div className="bg-white rounded-lg shadow p-6">
+                        <h3 className="text-lg font-semibold mb-4">Recent Learning Events</h3>
+                        <div className="space-y-3">
+                            {insights.recent_events.map(event => (
+                                <div key={event.event_id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                                    <div>
+                                        <div className="font-medium">{event.event_type.replace('_', ' ')}</div>
+                                        <div className="text-sm text-gray-500">{new Date(event.timestamp).toLocaleString()}</div>
+                                    </div>
+                                    {event.confidence_change && (
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                            event.confidence_change > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                        }`}>
+                                            {event.confidence_change > 0 ? '+' : ''}{(event.confidence_change * 100).toFixed(1)}%
+                                        </span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        
+        function MetricCard({ title, value, icon, color = 'blue' }) {
+            return (
+                <div className="bg-white rounded-lg shadow p-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-sm text-gray-500">{title}</p>
+                            <p className="mt-2 text-3xl font-bold text-gray-900">{value}</p>
+                        </div>
+                        <div className="text-4xl">{icon}</div>
+                    </div>
+                </div>
+            );
+        }
+        
+        ReactDOM.render(<Dashboard />, document.getElementById('root'));
+    </script>
+</body>
+</html>
