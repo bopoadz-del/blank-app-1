@@ -175,8 +175,8 @@ class TinkerML:
         
         # New confidence is weighted average of success rate and adjusted current
         new_confidence = (
-            0.7 * success_rate +  # 70% weight on overall success rate
-            0.3 * (current_confidence + confidence_delta)  # 30% on incremental update
+            0.85 * success_rate
+            + 0.15 * (current_confidence + confidence_delta)
         )
         
         # Confidence bounds: [0.1, 0.99]
