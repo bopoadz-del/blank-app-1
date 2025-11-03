@@ -1,22 +1,23 @@
-"""
-Reasoner Engine - Core formula execution with SymPy and validation.
-"""
-import ast
-import re
-import time
-import hashlib
-from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime
-import asyncio
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+"""Reasoner Engine - Core formula execution with lightweight validation."""
 
-import sympy as sp
-import numpy as np
-from scipy import stats
-from loguru import logger
+from __future__ import annotations
+
+import ast
+import asyncio
+import hashlib
+import logging
+import math
+import random
+import statistics
+import time
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.core.config import settings
 from app.models.schemas import ValidationStageEnum
+
+
+logger = logging.getLogger(__name__)
 
 
 class FormulaExecutionError(Exception):
@@ -35,40 +36,39 @@ class ReasonerEngine:
     Handles parsing, validation, execution, and result tracking.
     """
     
-    def __init__(self):
-        self.executor = ThreadPoolExecutor(max_workers=settings.MAX_PARALLEL_WORKERS)
-        self._cache: Dict[str, Any] = {}
+    def __init__(self) -> None:
+        self._cache: Dict[str, Dict[str, Any]] = {}
         self._safe_functions = self._initialize_safe_functions()
-    
+
     def _initialize_safe_functions(self) -> Dict[str, Any]:
-        """Initialize safe mathematical functions for execution."""
-        safe_funcs = {
-            # SymPy functions
-            'sqrt': sp.sqrt,
-            'sin': sp.sin,
-            'cos': sp.cos,
-            'tan': sp.tan,
-            'exp': sp.exp,
-            'log': sp.log,
-            'ln': sp.ln,
-            'pi': sp.pi,
-            'E': sp.E,
-            
-            # NumPy functions
-            'array': np.array,
-            'mean': np.mean,
-            'std': np.std,
-            'max': np.max,
-            'min': np.min,
-            'sum': np.sum,
-            'abs': np.abs,
-            'power': np.power,
-            
-            # Python built-ins (safe subset)
-            'float': float,
-            'int': int,
-            'round': round,
-            'len': len,
+        """Initialise the whitelist of mathematical helpers available to formulas."""
+
+        safe_funcs: Dict[str, Any] = {
+            # Math module functions
+            "sqrt": math.sqrt,
+            "sin": math.sin,
+            "cos": math.cos,
+            "tan": math.tan,
+            "asin": math.asin,
+            "acos": math.acos,
+            "atan": math.atan,
+            "exp": math.exp,
+            "log": math.log,
+            "log10": math.log10,
+            "log2": math.log2,
+            "pow": pow,
+            "fabs": math.fabs,
+            "floor": math.floor,
+            "ceil": math.ceil,
+            "pi": math.pi,
+            "e": math.e,
+
+            # Built-ins that are safe for numeric computation
+            "abs": abs,
+            "min": min,
+            "max": max,
+            "round": round,
+            "sum": sum,
         }
         return safe_funcs
     
@@ -107,20 +107,17 @@ class ReasonerEngine:
                 }
             
             # Execute with timeout
-            loop = asyncio.get_event_loop()
-            future = loop.run_in_executor(
-                self.executor,
-                self._execute_formula_sync,
-                formula_expression,
-                input_values
-            )
-            
             try:
-                result = await asyncio.wait_for(future, timeout=timeout)
-            except asyncio.TimeoutError:
+                task = asyncio.to_thread(
+                    self._execute_formula_sync,
+                    formula_expression,
+                    input_values,
+                )
+                result = await asyncio.wait_for(task, timeout=timeout)
+            except asyncio.TimeoutError as exc:
                 raise FormulaExecutionError(
                     f"Formula execution exceeded timeout of {timeout}s"
-                )
+                ) from exc
             
             execution_time = time.time() - start_time
             
@@ -136,13 +133,14 @@ class ReasonerEngine:
             
             # Cache result
             if len(self._cache) < settings.FORMULA_CACHE_SIZE:
-                self._cache[cache_key] = response
+                # Store a shallow copy so subsequent modifications do not affect the cache
+                self._cache[cache_key] = dict(response)
             
             return response
             
         except Exception as e:
             execution_time = time.time() - start_time
-            logger.error(f"Formula execution failed: {str(e)}")
+            logger.error("Formula execution failed: %s", e)
             return {
                 "success": False,
                 "error": str(e),
@@ -159,35 +157,32 @@ class ReasonerEngine:
     ) -> Any:
         """Synchronous formula execution (runs in thread pool)."""
         try:
-            # Parse formula
-            expr = sp.sympify(formula_expression, locals=self._safe_functions)
-            
-            # Get symbols from expression
-            symbols = expr.free_symbols
-            
-            # Create substitution dictionary
-            subs_dict = {}
-            for symbol in symbols:
-                symbol_name = str(symbol)
-                if symbol_name not in input_values:
-                    raise FormulaExecutionError(
-                        f"Missing required input: {symbol_name}"
-                    )
-                subs_dict[symbol] = input_values[symbol_name]
-            
-            # Substitute and evaluate
-            result = expr.subs(subs_dict)
-            
-            # Convert to float if possible
-            try:
-                result = float(result.evalf())
-            except (AttributeError, TypeError):
-                pass
-            
+            compiled_expr, required_variables = self._analyze_expression(formula_expression)
+        except ValueError as exc:  # pragma: no cover - defensive, exercised via tests
+            raise FormulaExecutionError(f"Execution error: {exc}") from exc
+
+        missing = [name for name in sorted(required_variables) if name not in input_values]
+        if missing:
+            raise FormulaExecutionError(f"Missing required input: {missing[0]}")
+
+        eval_context: Dict[str, Any] = dict(self._safe_functions)
+        eval_context.update(input_values)
+
+        try:
+            result = eval(compiled_expr, {"__builtins__": {}}, eval_context)
+        except Exception as exc:  # pragma: no cover - mirrors runtime protection
+            raise FormulaExecutionError(f"Execution error: {exc}") from exc
+
+        if isinstance(result, complex):
+            if abs(result.imag) < 1e-12:
+                result = result.real
+            else:
+                raise FormulaExecutionError("Complex results are not supported")
+
+        if isinstance(result, bool):  # Preserve boolean results exactly
             return result
-            
-        except Exception as e:
-            raise FormulaExecutionError(f"Execution error: {str(e)}")
+
+        return float(result) if isinstance(result, (int, float)) else result
     
     def _generate_cache_key(
         self,
@@ -241,8 +236,8 @@ class ReasonerEngine:
                 result = {"passed": False, "error": f"Unknown stage: {stage}"}
             
             results.append({
-                "stage": stage,
-                **result
+                "stage": stage.value,
+                **result,
             })
             
             if not result.get("passed", False):
@@ -257,32 +252,19 @@ class ReasonerEngine:
     def _validate_syntactic(self, formula_expression: str) -> Dict[str, Any]:
         """Stage 1: Validate syntax."""
         try:
-            # Try to parse with SymPy
-            expr = sp.sympify(formula_expression, locals=self._safe_functions)
-            
-            # Check for dangerous operations
-            expr_str = str(expr)
-            dangerous_patterns = ['import', 'exec', 'eval', '__', 'open', 'file']
-            for pattern in dangerous_patterns:
-                if pattern in expr_str.lower():
-                    return {
-                        "passed": False,
-                        "confidence": 0.0,
-                        "error": f"Dangerous operation detected: {pattern}"
-                    }
-            
-            return {
-                "passed": True,
-                "confidence": 1.0,
-                "details": {"symbols": [str(s) for s in expr.free_symbols]}
-            }
-            
-        except Exception as e:
+            _, variables = self._analyze_expression(formula_expression)
+        except ValueError as exc:
             return {
                 "passed": False,
                 "confidence": 0.0,
-                "error": f"Syntax error: {str(e)}"
+                "error": f"Syntax error: {exc}",
             }
+
+        return {
+            "passed": True,
+            "confidence": 1.0,
+            "details": {"symbols": sorted(variables)},
+        }
     
     def _validate_dimensional(
         self,
@@ -385,12 +367,12 @@ class ReasonerEngine:
             }
         
         try:
-            errors = []
+            errors: List[float] = []
             for test_case in test_data:
                 inputs = test_case.get('inputs', {})
                 expected_output = test_case.get('expected_output')
-                
-                if not expected_output:
+
+                if expected_output is None:
                     continue
                 
                 result = await self.execute_formula(formula_expression, inputs)
@@ -400,20 +382,24 @@ class ReasonerEngine:
                     continue
                 
                 actual = result["result"]
-                relative_error = abs(actual - expected_output) / abs(expected_output) if expected_output != 0 else abs(actual)
+                relative_error = (
+                    abs(actual - expected_output) / abs(expected_output)
+                    if expected_output != 0
+                    else abs(actual)
+                )
                 errors.append(relative_error)
-            
+
             if not errors:
                 return {
                     "passed": False,
                     "confidence": 0.0,
                     "error": "No valid test cases"
                 }
-            
-            mean_error = np.mean(errors)
+
+            mean_error = sum(errors) / len(errors)
             tolerance = settings.EMPIRICAL_VALIDATION_TOLERANCE
             passed = mean_error <= tolerance
-            
+
             return {
                 "passed": passed,
                 "confidence": 1.0 - min(mean_error, 1.0),
@@ -421,10 +407,10 @@ class ReasonerEngine:
                     "test_cases": len(test_data),
                     "mean_relative_error": mean_error,
                     "max_error": max(errors),
-                    "min_error": min(errors)
+                    "min_error": min(errors),
                 }
             }
-            
+
         except Exception as e:
             return {
                 "passed": False,
@@ -442,7 +428,7 @@ class ReasonerEngine:
             # Test execution speed
             test_input = self._generate_single_test_case(input_parameters)
             
-            execution_times = []
+            execution_times: List[float] = []
             for _ in range(10):
                 result = await self.execute_formula(formula_expression, test_input)
                 if result["success"]:
@@ -455,8 +441,8 @@ class ReasonerEngine:
                     "error": "Formula failed all operational tests"
                 }
             
-            avg_time = np.mean(execution_times)
-            std_time = np.std(execution_times)
+            avg_time = sum(execution_times) / len(execution_times)
+            std_time = statistics.pstdev(execution_times) if len(execution_times) > 1 else 0.0
             
             # Check if execution time is acceptable (< 5 seconds)
             passed = avg_time < 5.0
@@ -469,10 +455,10 @@ class ReasonerEngine:
                     "average_execution_time": avg_time,
                     "std_execution_time": std_time,
                     "min_time": min(execution_times),
-                    "max_time": max(execution_times)
+                    "max_time": max(execution_times),
                 }
             }
-            
+
         except Exception as e:
             return {
                 "passed": False,
@@ -486,18 +472,18 @@ class ReasonerEngine:
         count: int = 20
     ) -> List[Dict[str, Any]]:
         """Generate realistic test cases for physical validation."""
-        test_cases = []
-        
+        test_cases: List[Dict[str, Any]] = []
+
         for _ in range(count):
             test_case = {}
             for param_name, param_def in input_parameters.items():
                 min_val = param_def.get('min_value', 0.1)
                 max_val = param_def.get('max_value', 100.0)
-                
+
                 # Generate random value in range
-                value = np.random.uniform(min_val, max_val)
+                value = random.uniform(min_val, max_val)
                 test_case[param_name] = value
-            
+
             test_cases.append(test_case)
         
         return test_cases
@@ -507,7 +493,7 @@ class ReasonerEngine:
         input_parameters: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Generate a single test case."""
-        test_case = {}
+        test_case: Dict[str, Any] = {}
         for param_name, param_def in input_parameters.items():
             default = param_def.get('default')
             if default is not None:
@@ -516,8 +502,93 @@ class ReasonerEngine:
                 min_val = param_def.get('min_value', 1.0)
                 max_val = param_def.get('max_value', 10.0)
                 test_case[param_name] = (min_val + max_val) / 2
-        
+
         return test_case
+
+    def _analyze_expression(self, formula_expression: str) -> Tuple[object, Set[str]]:
+        """Validate and compile a formula expression.
+
+        Returns a tuple with the compiled expression and the set of variable names
+        that must be supplied through ``input_values``.
+        """
+
+        try:
+            tree = ast.parse(formula_expression, mode="eval")
+        except SyntaxError as exc:
+            raise ValueError(exc) from exc
+
+        analyzer = _SafeExpressionAnalyzer(self._safe_functions)
+        analyzer.visit(tree)
+        compiled = compile(tree, "<formula>", "eval")
+        return compiled, analyzer.variables
+
+
+class _SafeExpressionAnalyzer(ast.NodeVisitor):
+    """Ensure that only a safe subset of Python expressions is executed."""
+
+    _ALLOWED_NODES = (
+        ast.Expression,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.Call,
+        ast.Name,
+        ast.Load,
+        ast.Constant,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.Mod,
+        ast.Pow,
+        ast.FloorDiv,
+        ast.USub,
+        ast.Compare,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.BoolOp,
+        ast.And,
+        ast.Or,
+        ast.IfExp,
+        ast.Tuple,
+        ast.List,
+    )
+
+    def __init__(self, safe_names: Dict[str, Any]) -> None:
+        super().__init__()
+        self.safe_names = safe_names
+        self.variables: Set[str] = set()
+
+    # ``NodeVisitor`` routes every node through ``visit`` before calling the
+    # specialised ``visit_*`` method.  Overriding it lets us enforce the allowed
+    # node whitelist in one place.
+    def visit(self, node: ast.AST) -> Any:  # type: ignore[override]
+        if not isinstance(node, self._ALLOWED_NODES):
+            raise ValueError(f"Unsupported expression element: {type(node).__name__}")
+        return super().visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: D401 - short implementation
+        if not isinstance(node.func, ast.Name):
+            raise ValueError("Only direct function calls are allowed")
+        if node.func.id not in self.safe_names:
+            raise ValueError(f"Function '{node.func.id}' is not permitted")
+        if node.keywords:
+            raise ValueError("Keyword arguments are not supported")
+        for arg in node.args:
+            self.visit(arg)
+
+    def visit_Name(self, node: ast.Name) -> None:  # noqa: D401 - short implementation
+        if node.id not in self.safe_names:
+            self.variables.add(node.id)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:  # noqa: D401 - short implementation
+        raise ValueError("Attribute access is not allowed in formulas")
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:  # noqa: D401 - short implementation
+        raise ValueError("Indexing is not allowed in formulas")
 
 
 # Global instance
